@@ -369,9 +369,17 @@
     document.head.appendChild(style);
   }
 
-  if (document.getElementById(ROOT_ID)) {
-    document.querySelectorAll(`#${ROOT_ID} input`).forEach((i) => i.classList.add("no-focus-ring"));
-    return "already-injected";
+  const PANEL_VERSION = "20261124-v2";
+  const existingRoot = document.getElementById(ROOT_ID);
+  let wasModalOpen = false;
+  if (existingRoot) {
+    if (existingRoot.dataset.version === PANEL_VERSION) {
+      document.querySelectorAll(`#${ROOT_ID} input`).forEach((i) => i.classList.add("no-focus-ring"));
+      return "already-injected";
+    }
+    wasModalOpen = existingRoot.querySelector(".as-panel")?.hasAttribute("open") || false;
+    existingRoot.remove();
+    document.getElementById(ITEM_ID)?.remove();
   }
 
   const icons = {
@@ -391,6 +399,7 @@
 
   const root = document.createElement("div");
   root.id = ROOT_ID;
+  root.dataset.version = PANEL_VERSION;
   root.innerHTML = `
     <dialog class="as-panel" data-panel aria-labelledby="agy-ssh-title">
       <header class="as-top">
@@ -1371,6 +1380,10 @@
   mountMenuItem();
   const mo = new MutationObserver(() => { if (!document.getElementById(ITEM_ID)) mountMenuItem(); });
   mo.observe(document.body, { childList: true, subtree: true });
+
+  if (wasModalOpen) {
+    setTimeout(() => { try { open(); } catch (e) {} }, 60);
+  }
 
   return "injected";
 })();
