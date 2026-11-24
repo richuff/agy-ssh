@@ -642,8 +642,7 @@
     saveCredentialBtn.disabled = useOnceBtn.disabled = !canManage;
     const status = $("[data-status]");
     status.dataset.state = activity ? "" : result?.state || "";
-    status.textContent = activity || stateLabels[result?.state] ||
-      (current && serviceAvailable ? "未测试连接" : "");
+    status.textContent = activity || stateLabels[result?.state] || "";
   }
 
   function ansiToHtml(text) {
