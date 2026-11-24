@@ -9,7 +9,7 @@
  * 5. 页面重载后自动重注入；优雅退出避免宿主启动死锁
  */
 import http from "node:http";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -128,19 +128,61 @@ async function ensureConnection(port) {
   LOG("已附加页面:", (page.title || "").slice(0, 40));
 }
 
-function buildScript() {
-  return readFileSync(PANEL_SCRIPT, "utf8").replace(/<\/script/gi, "<\\/script");
+let cachedScript = "";
+let cachedVersion = "";
+let lastScriptMtime = 0;
+
+function loadScriptInfo() {
+  try {
+    const stat = statSync(PANEL_SCRIPT);
+    if (stat.mtimeMs !== lastScriptMtime || !cachedScript) {
+      cachedScript = readFileSync(PANEL_SCRIPT, "utf8").replace(/<\/script/gi, "<\\/script");
+      lastScriptMtime = stat.mtimeMs;
+      const m = cachedScript.match(/PANEL_VERSION\s*=\s*["']([^"']+)["']/);
+      cachedVersion = m ? m[1] : "";
+    }
+  } catch (e) {
+    if (!cachedScript) cachedScript = readFileSync(PANEL_SCRIPT, "utf8").replace(/<\/script/gi, "<\\/script");
+  }
+  return { script: cachedScript, version: cachedVersion };
 }
 
 async function tick() {
+  let isHealthy = false;
   try {
     const port = readPort();
     if (!port) throw new Error("DevToolsActivePort 未就绪");
     await ensureConnection(port);
 
-    const expr = buildScript();
+    const { script, version } = loadScriptInfo();
+
+    // 1. 发送轻量探测探针 (~70 字节)，检查当前页面是否已注入且版本一致且侧边栏入口依然存在
+    if (version) {
+      try {
+        const probeExpr = `window.__agy_ssh_ver === "${version}" && !!document.getElementById("__agy_ssh_item__")`;
+        const probeRes = await cdp.send("Runtime.evaluate", {
+          expression: probeExpr,
+          returnByValue: true,
+          awaitPromise: false,
+        }, sessionId);
+        if (probeRes?.result?.value === true) {
+          isHealthy = true;
+        }
+      } catch (e) {
+        // 如果探针失败（例如页面刷新导致 sessionId 失效），走重新连接/注入逻辑
+      }
+    }
+
+    if (isHealthy) {
+      failures = 0;
+      // 页面正常运行且无版本更新，将巡检间隔放宽到 15 秒，避免无谓占用 V8 与 CDP 资源
+      setTimeout(tick, 15000);
+      return;
+    }
+
+    // 2. 未注入或版本不匹配，执行完整脚本注入
     const r = await cdp.send("Runtime.evaluate", {
-      expression: expr,
+      expression: script,
       returnByValue: true,
       awaitPromise: false,
     }, sessionId);

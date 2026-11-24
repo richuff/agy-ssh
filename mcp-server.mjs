@@ -70,8 +70,10 @@ function apiRequest(method, pathname, body = null) {
   });
 }
 
-// 读取工具模式
+// 读取工具模式 (带内存缓存，避免高频请求重复扫描磁盘与 JSON 解析)
+let cachedTools = null;
 function getToolDefinitions() {
+  if (cachedTools && cachedTools.length > 0) return cachedTools;
   const schemaDir = path.join(os.homedir(), ".gemini", "antigravity", "mcp", "ssh-manager");
   const tools = [];
 
@@ -202,6 +204,7 @@ function getToolDefinitions() {
     );
   }
 
+  if (tools.length > 0) cachedTools = tools;
   return tools;
 }
 

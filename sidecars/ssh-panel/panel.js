@@ -2,6 +2,9 @@
  * agy-ssh — Antigravity 中的 SSH 管理面板
  */
 (() => {
+  if (window.__agy_ssh_cleanup) {
+    try { window.__agy_ssh_cleanup(); } catch (e) {}
+  }
   const ROOT_ID = "__agy_ssh_root__";
   const ITEM_ID = "__agy_ssh_item__";
   const API = "http://127.0.0.1:18761";
@@ -369,12 +372,13 @@
     document.head.appendChild(style);
   }
 
-  const PANEL_VERSION = "20261124-v2";
+  const PANEL_VERSION = "20261124-v3";
   const existingRoot = document.getElementById(ROOT_ID);
   let wasModalOpen = false;
   if (existingRoot) {
     if (existingRoot.dataset.version === PANEL_VERSION) {
       document.querySelectorAll(`#${ROOT_ID} input`).forEach((i) => i.classList.add("no-focus-ring"));
+      window.__agy_ssh_ver = PANEL_VERSION;
       return "already-injected";
     }
     wasModalOpen = existingRoot.querySelector(".as-panel")?.hasAttribute("open") || false;
@@ -511,7 +515,7 @@
 
   let servers = [], credentials = [], current = null;
   let serviceAvailable = false, activity = "", saveDialog = null;
-  let logPollTimer = null, lastSyncServer = null;
+  let logPollTimer = null, lastSyncServer = null, lastSyncTimestamp = 0;
   const renderedLogIds = new Set();
   let currentServerUser = "user", currentServerHost = "host", currentServerCwd = "~";
   const terminals = new Map();
@@ -748,12 +752,16 @@
     const serverChanged = lastSyncServer !== name;
     if (serverChanged || forceFull) {
       lastSyncServer = name;
+      lastSyncTimestamp = 0;
       renderedLogIds.clear();
       out.replaceChildren();
     }
 
     try {
-      const res = await api(`/api/terminal/logs?server=${encodeURIComponent(name)}`);
+      const url = lastSyncTimestamp > 0
+        ? `/api/terminal/logs?server=${encodeURIComponent(name)}&since=${lastSyncTimestamp}`
+        : `/api/terminal/logs?server=${encodeURIComponent(name)}`;
+      const res = await api(url);
       if (!res.ok) return;
 
       updateInputPrompt(res.user, res.host, res.cwd);
@@ -769,6 +777,9 @@
 
         let added = false;
         for (const logItem of logs) {
+          if (logItem.timestamp > lastSyncTimestamp) {
+            lastSyncTimestamp = logItem.timestamp;
+          }
           if (!renderedLogIds.has(logItem.id)) {
             renderedLogIds.add(logItem.id);
             out.appendChild(renderLogEntry(logItem));
@@ -1288,8 +1299,15 @@
   });
   const clearTermBtn = $("[data-clear-term]");
   if (clearTermBtn) {
-    clearTermBtn.addEventListener("click", () => {
+    clearTermBtn.addEventListener("click", async () => {
       out.replaceChildren();
+      renderedLogIds.clear();
+      lastSyncTimestamp = Date.now();
+      if (current?.name) {
+        try {
+          await api(`/api/terminal/logs?server=${encodeURIComponent(current.name)}`, { method: "DELETE" });
+        } catch (e) {}
+      }
     });
   }
   $("[data-hist]").addEventListener("click", (event) => {
@@ -1378,8 +1396,51 @@
   let tries = 0;
   const timer = setInterval(() => { tries++; if (mountMenuItem() || tries > 40) clearInterval(timer); }, 400);
   mountMenuItem();
-  const mo = new MutationObserver(() => { if (!document.getElementById(ITEM_ID)) mountMenuItem(); });
+
+  let moScheduled = false;
+  const mo = new MutationObserver((mutations) => {
+    if (document.getElementById(ITEM_ID)) return;
+    let relevant = false;
+    for (let i = 0; i < mutations.length; i++) {
+      const m = mutations[i];
+      if (m.type === "childList") {
+        const t = m.target;
+        if (t && t.nodeType === 1 && t.closest && t.closest('aside, [data-testid="sidebar-navigation-items"]')) {
+          relevant = true;
+          break;
+        }
+        for (let j = 0; j < m.addedNodes.length; j++) {
+          const n = m.addedNodes[j];
+          if (n.nodeType === 1) {
+            if (n.id === ITEM_ID || n.tagName === "ASIDE" || n.getAttribute?.("data-testid") === "sidebar-navigation-items") {
+              relevant = true;
+              break;
+            }
+            if (n.querySelector && n.querySelector('[data-testid="sidebar-navigation-items"]')) {
+              relevant = true;
+              break;
+            }
+          }
+        }
+        if (relevant) break;
+      }
+    }
+    if (relevant && !moScheduled) {
+      moScheduled = true;
+      requestAnimationFrame(() => {
+        moScheduled = false;
+        mountMenuItem();
+      });
+    }
+  });
   mo.observe(document.body, { childList: true, subtree: true });
+
+  window.__agy_ssh_cleanup = () => {
+    try { mo.disconnect(); } catch (e) {}
+    try { clearInterval(timer); } catch (e) {}
+    try { if (logPollTimer) clearInterval(logPollTimer); } catch (e) {}
+  };
+  window.__agy_ssh_ver = PANEL_VERSION;
 
   if (wasModalOpen) {
     setTimeout(() => { try { open(); } catch (e) {} }, 60);

@@ -656,7 +656,20 @@ const sessionManager = new SessionManager();
 
 /* ---------------- 内存级终端日志记录 (Antigravity 运行期间保留，关闭后自动随进程释放) ---------------- */
 const serverTerminalLogs = new Map(); // serverName -> Array<LogEntry>
-const MAX_TERMINAL_LOGS = 1000;
+const MAX_TERMINAL_LOGS = 500;
+const MAX_OUTPUT_CHARS = 100_000;
+
+function truncateTerminalOutput(str) {
+  if (!str) return "";
+  const cleaned = str.replace(/^[\r\n]+/, "").replace(/[\r\n]+$/, "");
+  if (cleaned.length <= MAX_OUTPUT_CHARS) return cleaned;
+  const half = Math.floor(MAX_OUTPUT_CHARS / 2);
+  return (
+    cleaned.slice(0, half) +
+    `\n\n... [输出过长已截断，省略 ${cleaned.length - MAX_OUTPUT_CHARS} 字符] ...\n\n` +
+    cleaned.slice(-half)
+  );
+}
 
 function pushTerminalLog(serverName, entry) {
   if (!serverTerminalLogs.has(serverName)) {
@@ -671,8 +684,8 @@ function pushTerminalLog(serverName, entry) {
     host: entry.host || serverName,
     cwd: entry.cwd || "~",
     command: entry.command || "",
-    stdout: (entry.stdout || "").replace(/^[\r\n]+/, "").replace(/[\r\n]+$/, ""),
-    stderr: (entry.stderr || "").replace(/^[\r\n]+/, "").replace(/[\r\n]+$/, ""),
+    stdout: truncateTerminalOutput(entry.stdout || ""),
+    stderr: truncateTerminalOutput(entry.stderr || ""),
     code: entry.code ?? 0,
     ok: entry.ok ?? (entry.code === 0),
     ms: entry.ms || 0,
