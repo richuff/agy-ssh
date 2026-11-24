@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "ssh-manager": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\pifeiy\\.gemini\\config\\plugins\\agy-ssh\\mcp-server.mjs"
+      ]
+    }
+  }
+}

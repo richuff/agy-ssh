@@ -1,0 +1,7 @@
+{
+  "command": "node",
+  "args": ["bootstrap.mjs"],
+  "restart_policy": "always",
+  "display_name": "SSH Manager",
+  "description": "注入 SSH 管理面板到 Antigravity 侧边栏"
+}

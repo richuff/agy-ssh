@@ -1,0 +1,9 @@
+# 运行时生成
+sidecars/ssh-panel/port.json
+*.log
+node_modules/
+
+# 本地凭据与环境
+.env
+.env.*
+*.token
